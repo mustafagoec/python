@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "social-mcp"
+version = "0.1.0"
+description = "MCP-Server, der Claude mit LinkedIn, YouTube und Instagram verbindet"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+dependencies = [
+    "mcp>=2.2,<3",
+    "httpx2>=2.13",
+    "pydantic>=2.11",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "anyio[trio]>=4"]
+
+[project.scripts]
+social-mcp = "social_mcp.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/social_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
