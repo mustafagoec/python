@@ -6,6 +6,7 @@ and "Share on LinkedIn" (scopes: openid profile email w_member_social).
 
 from __future__ import annotations
 
+import asyncio
 import mimetypes
 import time
 from pathlib import Path
@@ -99,6 +100,64 @@ class LinkedInClient:
         raise_for_status(put, self.platform)
         return value["image"]
 
+    async def _upload_video(self, author: str, video_path: str, timeout_s: float = 900) -> str:
+        """Multipart upload via the Videos API; waits until LinkedIn has processed the video."""
+        path = Path(video_path).expanduser()
+        if not path.is_file():
+            raise ApiError(f"Videodatei nicht gefunden: {path}")
+        size = path.stat().st_size
+        resp = await self.http.post(
+            f"{API}/rest/videos",
+            params={"action": "initializeUpload"},
+            headers=await self._headers(),
+            json={"initializeUploadRequest": {
+                "owner": author, "fileSizeBytes": size, "uploadCaptions": False, "uploadThumbnail": False,
+            }},
+        )
+        raise_for_status(resp, self.platform)
+        value = resp.json()["value"]
+        video_urn = value["video"]
+
+        etags: list[str] = []
+        with path.open("rb") as fh:
+            for part in value["uploadInstructions"]:
+                first, last = int(part["firstByte"]), int(part["lastByte"])
+                fh.seek(first)
+                put = await self.http.put(
+                    part["uploadUrl"],
+                    content=fh.read(last - first + 1),
+                    headers={"Content-Type": "application/octet-stream"},
+                    timeout=300,
+                )
+                raise_for_status(put, self.platform)
+                etag = put.headers.get("etag")
+                if not etag:
+                    raise ApiError("LinkedIn hat für einen Video-Teil keine ETag zurückgegeben.")
+                etags.append(etag)
+
+        fin = await self.http.post(
+            f"{API}/rest/videos",
+            params={"action": "finalizeUpload"},
+            headers=await self._headers(),
+            json={"finalizeUploadRequest": {
+                "video": video_urn, "uploadToken": value.get("uploadToken", ""), "uploadedPartIds": etags,
+            }},
+        )
+        raise_for_status(fin, self.platform)
+
+        deadline = time.monotonic() + timeout_s
+        while True:
+            st = await self.http.get(f"{API}/rest/videos/{quote(video_urn, safe='')}", headers=await self._headers())
+            raise_for_status(st, self.platform)
+            status = st.json().get("status")
+            if status == "AVAILABLE":
+                return video_urn
+            if status == "PROCESSING_FAILED":
+                raise ApiError(f"LinkedIn konnte das Video nicht verarbeiten ({video_urn}).")
+            if time.monotonic() > deadline:
+                raise ApiError(f"LinkedIn-Verarbeitung dauert zu lange (Video {video_urn}, Status {status}).")
+            await asyncio.sleep(5)
+
     async def create_post(
         self,
         text: str,
@@ -108,9 +167,11 @@ class LinkedInClient:
         article_description: str | None = None,
         image_path: str | None = None,
         image_alt_text: str | None = None,
+        video_path: str | None = None,
+        video_title: str | None = None,
     ) -> dict[str, Any]:
-        if article_url and image_path:
-            raise ApiError("Ein LinkedIn-Post kann entweder einen Link oder ein Bild enthalten, nicht beides.")
+        if sum(bool(x) for x in (article_url, image_path, video_path)) > 1:
+            raise ApiError("Ein LinkedIn-Post kann nur eins enthalten: einen Link, ein Bild oder ein Video.")
         author = await self._author()
         body: dict[str, Any] = {
             "author": author,
@@ -129,6 +190,11 @@ class LinkedInClient:
             media = {"id": await self._upload_image(author, image_path)}
             if image_alt_text:
                 media["altText"] = image_alt_text
+            body["content"] = {"media": media}
+        elif video_path:
+            media = {"id": await self._upload_video(author, video_path)}
+            if video_title:
+                media["title"] = video_title
             body["content"] = {"media": media}
 
         resp = await self.http.post(f"{API}/rest/posts", headers=await self._headers(), json=body)

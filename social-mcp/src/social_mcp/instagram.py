@@ -1,6 +1,6 @@
 """Instagram API with Instagram Login (Business and Creator accounts).
 
-Publishing requires media that is reachable under a public HTTPS URL; Instagram fetches it
+Feed posts, carousels, reels and stories are supported. Publishing requires media that is reachable under a public HTTPS URL; Instagram fetches it
 from there, local files cannot be uploaded directly.
 """
 
@@ -129,6 +129,16 @@ class InstagramClient:
             "media_type": "REELS", "video_url": video_url, "caption": caption,
             "share_to_feed": "true" if share_to_feed else "false",
         }, timeout_s=600)
+
+    async def publish_story(self, image_url: str | None = None, video_url: str | None = None) -> dict[str, Any]:
+        if bool(image_url) == bool(video_url):
+            raise ApiError("Eine Story braucht genau eins: image_url oder video_url.")
+        params: dict[str, Any] = {"media_type": "STORIES"}
+        if image_url:
+            params["image_url"] = image_url
+        else:
+            params["video_url"] = video_url
+        return await self._publish(params, timeout_s=600 if video_url else 300)
 
     async def publish_carousel(self, image_urls: list[str], caption: str = "") -> dict[str, Any]:
         if not 2 <= len(image_urls) <= 10:

@@ -42,7 +42,7 @@ def payload(result):
 async def test_lists_all_tools(settings):
     async with Client(make_server(settings, lambda r: httpx.Response(500))) as client:
         names = {t.name for t in (await client.list_tools()).tools}
-    assert {"social_status", "linkedin_create_post", "youtube_upload_video", "instagram_publish_image"} <= names
+    assert {"social_status", "linkedin_create_post", "youtube_upload_video", "instagram_publish_image", "instagram_publish_story"} <= names
 
 
 async def test_status_without_tokens(settings):
@@ -140,3 +140,98 @@ async def test_instagram_publish_image(settings):
         }))
     assert data == {"media_id": "m1", "permalink": "https://instagram.com/p/x"}
     assert ("POST", "/v23.0/17841/media_publish") in calls
+
+
+async def test_instagram_publish_story_video(settings):
+    TokenStore(settings.token_file).set("instagram", {
+        "access_token": "ig", "expires_at": time.time() + 50 * 86400, "issued_at": time.time(), "user_id": "17841",
+    })
+    container = {}
+
+    def handler(request: httpx.Request):
+        path = request.url.path
+        if path == "/v23.0/17841/media":
+            container.update(request.url.params)
+            return httpx.Response(200, json={"id": "c1"})
+        if path == "/v23.0/c1":
+            return httpx.Response(200, json={"status_code": "FINISHED"})
+        if path == "/v23.0/17841/media_publish":
+            return httpx.Response(200, json={"id": "s1"})
+        if path == "/v23.0/s1":
+            return httpx.Response(200, json={"id": "s1"})
+        return httpx.Response(404)
+
+    async with Client(make_server(settings, handler)) as client:
+        data = payload(await client.call_tool("instagram_publish_story", {"video_url": "https://example.com/s.mp4"}))
+    assert data["media_id"] == "s1"
+    assert container["media_type"] == "STORIES"
+    assert container["video_url"] == "https://example.com/s.mp4"
+    assert "image_url" not in container
+
+
+async def test_instagram_story_needs_exactly_one_media(settings):
+    TokenStore(settings.token_file).set("instagram", {"access_token": "ig", "user_id": "17841"})
+    async with Client(make_server(settings, lambda r: httpx.Response(500))) as client:
+        result = await client.call_tool("instagram_publish_story", {})
+    assert result.is_error
+    assert "genau eins" in result.content[0].text
+
+
+async def test_linkedin_video_post(settings, tmp_path, monkeypatch):
+    import social_mcp.linkedin as li_mod
+
+    async def no_sleep(_):
+        return None
+
+    monkeypatch.setattr(li_mod.asyncio, "sleep", no_sleep)
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"A" * 10 + b"B" * 5)
+    TokenStore(settings.token_file).set("linkedin", {
+        "access_token": "li-tok", "expires_at": time.time() + 3600, "person_urn": "urn:li:person:abc",
+    })
+    parts, finalize, post, polls = [], {}, {}, []
+
+    def handler(request: httpx.Request):
+        host, path, action = request.url.host, request.url.path, request.url.params.get("action")
+        if host == "upload.example.com":
+            parts.append(request.content)
+            return httpx.Response(200, headers={"etag": f"etag-{len(parts)}"})
+        if path == "/rest/videos" and action == "initializeUpload":
+            body = json.loads(request.content)["initializeUploadRequest"]
+            assert body["owner"] == "urn:li:person:abc"
+            assert body["fileSizeBytes"] == 15
+            return httpx.Response(200, json={"value": {
+                "video": "urn:li:video:V1", "uploadToken": "tok",
+                "uploadInstructions": [
+                    {"uploadUrl": "https://upload.example.com/1", "firstByte": 0, "lastByte": 9},
+                    {"uploadUrl": "https://upload.example.com/2", "firstByte": 10, "lastByte": 14},
+                ],
+            }})
+        if path == "/rest/videos" and action == "finalizeUpload":
+            finalize.update(json.loads(request.content)["finalizeUploadRequest"])
+            return httpx.Response(200)
+        if path == "/rest/videos/urn:li:video:V1":
+            polls.append(1)
+            return httpx.Response(200, json={"status": "PROCESSING" if len(polls) == 1 else "AVAILABLE"})
+        if path == "/rest/posts":
+            post.update(json.loads(request.content))
+            return httpx.Response(201, headers={"x-restli-id": "urn:li:share:7"})
+        return httpx.Response(404)
+
+    async with Client(make_server(settings, handler)) as client:
+        data = payload(await client.call_tool("linkedin_create_post", {
+            "text": "Neues Video", "video_path": str(video), "video_title": "Unix vs. Linux",
+        }))
+    assert data["post_urn"] == "urn:li:share:7"
+    assert parts == [b"A" * 10, b"B" * 5]
+    assert finalize == {"video": "urn:li:video:V1", "uploadToken": "tok", "uploadedPartIds": ["etag-1", "etag-2"]}
+    assert len(polls) == 2
+    assert post["content"]["media"] == {"id": "urn:li:video:V1", "title": "Unix vs. Linux"}
+
+
+async def test_linkedin_rejects_image_and_video(settings):
+    TokenStore(settings.token_file).set("linkedin", {"access_token": "t", "person_urn": "urn:li:person:abc"})
+    async with Client(make_server(settings, lambda r: httpx.Response(500))) as client:
+        result = await client.call_tool("linkedin_create_post", {"text": "x", "image_path": "a.jpg", "video_path": "b.mp4"})
+    assert result.is_error
+    assert "nur eins" in result.content[0].text

@@ -105,9 +105,13 @@ def create_server(settings: Settings | None = None, http: httpx.AsyncClient | No
         article_description: Annotated[str | None, Field(description="Beschreibung der Link-Vorschau")] = None,
         image_path: Annotated[str | None, Field(description="Optional: lokaler Pfad zu einem Bild (JPG/PNG/GIF)")] = None,
         image_alt_text: Annotated[str | None, Field(description="Alternativtext für das Bild")] = None,
+        video_path: Annotated[str | None, Field(description="Optional: lokaler Pfad zu einem MP4-Video (3 s bis 30 min, max. 5 GB)")] = None,
+        video_title: Annotated[str | None, Field(description="Titel des Videos")] = None,
     ) -> dict[str, Any]:
-        """Veröffentlicht einen Post im LinkedIn-Feed des Nutzers - optional mit Link-Vorschau oder Bild."""
-        return await li.create_post(text, visibility, article_url, article_title, article_description, image_path, image_alt_text)
+        """Veröffentlicht einen Post im LinkedIn-Feed des Nutzers - optional mit Link-Vorschau, Bild oder Video (nur eins davon). Videos werden hochgeladen und erst gepostet, wenn LinkedIn sie verarbeitet hat."""
+        return await li.create_post(
+            text, visibility, article_url, article_title, article_description, image_path, image_alt_text, video_path, video_title,
+        )
 
     @tool(DESTRUCTIVE)
     async def linkedin_delete_post(
@@ -238,5 +242,13 @@ def create_server(settings: Settings | None = None, http: httpx.AsyncClient | No
     ) -> dict[str, Any]:
         """Veröffentlicht ein Reel. Die Verarbeitung durch Instagram kann einige Minuten dauern."""
         return await ig.publish_reel(video_url, caption, share_to_feed)
+
+    @tool(WRITE)
+    async def instagram_publish_story(
+        image_url: Annotated[str | None, Field(description="Öffentliche HTTPS-URL eines JPEG-Bildes (9:16 empfohlen)")] = None,
+        video_url: Annotated[str | None, Field(description="Öffentliche HTTPS-URL eines MP4-Videos (3-60 s, 9:16 empfohlen)")] = None,
+    ) -> dict[str, Any]:
+        """Veröffentlicht eine Story (Bild oder Video, genau eins von beiden). Stories haben keine Caption und verschwinden nach 24 Stunden."""
+        return await ig.publish_story(image_url, video_url)
 
     return mcp

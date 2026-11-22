@@ -11,9 +11,9 @@ Der Server läuft auf deinem Rechner. Deine Tokens liegen nur lokal in `~/.confi
 | Plattform | Lesen | Schreiben |
 |---|---|---|
 | Allgemein | `social_status` | – |
-| LinkedIn | `linkedin_get_profile` | `linkedin_create_post` (Text, Link-Vorschau oder Bild), `linkedin_delete_post` |
+| LinkedIn | `linkedin_get_profile` | `linkedin_create_post` (Text, Link-Vorschau, Bild oder Video), `linkedin_delete_post` |
 | YouTube | `youtube_get_channel`, `youtube_list_my_videos`, `youtube_get_videos`, `youtube_list_comments` | `youtube_post_comment`, `youtube_reply_to_comment`, `youtube_update_video`, `youtube_upload_video` |
-| Instagram | `instagram_get_profile`, `instagram_list_media`, `instagram_get_media_insights`, `instagram_list_comments` | `instagram_reply_to_comment`, `instagram_publish_image`, `instagram_publish_carousel`, `instagram_publish_reel` |
+| Instagram | `instagram_get_profile`, `instagram_list_media`, `instagram_get_media_insights`, `instagram_list_comments` | `instagram_reply_to_comment`, `instagram_publish_image`, `instagram_publish_carousel`, `instagram_publish_reel`, `instagram_publish_story` |
 
 Schreibende Tools sind im MCP-Protokoll als solche markiert, Claude fragt also vor jedem Post nach.
 
@@ -22,9 +22,11 @@ Schreibende Tools sind im MCP-Protokoll als solche markiert, Claude fragt also v
 - **LinkedIn:** Mit der Self-Service-API kannst du posten und dein Profil lesen. Eigene Posts, Feed,
   Kommentare oder Statistiken auslesen geht nur mit freigeschalteten Partnerprogrammen
   (Community Management API) – das ist hier deshalb nicht eingebaut.
+  Videos (MP4, 3 s bis 30 min, max. 5 GB) werden aus einer lokalen Datei hochgeladen; der Post erscheint erst,
+  wenn LinkedIn das Video verarbeitet hat (bis zu 15 Minuten Wartezeit).
 - **Instagram:** Nur **Business- oder Creator-Konten** (kein privates Konto). Bilder und Videos müssen
   unter einer **öffentlichen HTTPS-URL** liegen – Instagram lädt sie von dort; lokale Dateien gehen nicht.
-  Stories und DMs sind nicht enthalten.
+  Stories (Bild oder Video, ohne Caption, Sticker oder Links) gehen, DMs sind nicht enthalten.
 - **YouTube:** Das Standard-Kontingent sind 10.000 Einheiten/Tag; ein Upload kostet ca. 1.600. Videos aus
   ungeprüften Google-Projekten werden von YouTube oft automatisch auf „privat“ gesetzt, bis die App ein
   Audit bestanden hat.
@@ -109,6 +111,8 @@ kannst du sie im `env`-Block der Claude-Konfiguration setzen.
 - „Beantworte die unbeantworteten Kommentare unter meinem neuesten Video – zeig mir die Antworten vorher.“
 - „Mach aus meinem neuesten YouTube-Video einen LinkedIn-Post mit Link.“
 - „Poste dieses Bild https://… auf Instagram mit einer passenden Caption und 5 Hashtags.“
+- „Lade `C:\Videos\unix-vs-linux.mp4` als LinkedIn-Post hoch und schreib einen kurzen Text dazu.“
+- „Stell das Video https://…/teaser.mp4 als Instagram-Story online.“
 
 ## Entwicklung
 
